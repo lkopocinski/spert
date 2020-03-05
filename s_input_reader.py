@@ -1,12 +1,15 @@
 import json
+import random
 from abc import ABC, abstractmethod
 from collections import OrderedDict
 from typing import List, Iterable
 
+import torch
 from tqdm import tqdm
 
 from spert import util
 from spert.entities import Dataset, Document, Relation, Entity, EntityType, RelationType
+from spert.sampling import TrainTensorSample, create_rel_mask, create_entity_mask
 
 
 class SemrelBaseInputReader(ABC):
@@ -179,6 +182,65 @@ class SemrelJsonInputReader(SemrelBaseInputReader):
         return relations
 
 
+def _create_train_sample(doc, negative_entity_count, negative_rel_count, max_span_size, context_size):
+    token_count = len(doc.tokens)
+
+    # positive entities
+    positive_entity_spans, positive_entity_types, positive_entity_sizes = [], [], []
+    for e in doc.entities:
+        positive_entity_spans.append(e.span)
+        positive_entity_types.append(e.entity_type.index)
+        positive_entity_sizes.append(len(e.tokens))
+
+    # positive relations
+    positive_rels, positive_rel_spans, positive_rel_types = [], [], []
+    for rel in doc.relations:
+        span1, span2 = rel.head_entity.span, rel.tail_entity.span
+        # wypisuje na których pozycjach w liście pos_entity_spans są elementy danej relacji
+        positive_rels.append((positive_entity_spans.index(span1), positive_entity_spans.index(span2)))
+        positive_rel_spans.append((span1, span2))
+        positive_rel_types.append(rel.relation_type)
+
+    # negative entities
+    negative_entity_spans, negative_entity_sizes = [], []
+    for size in range(1, max_span_size + 1):
+        for i in range((token_count - size) + 1):
+            span = doc.tokens[i:i + size].span
+            if span not in positive_entity_spans:
+                negative_entity_spans.append(span)
+                negative_entity_sizes.append(size)
+
+    # sample negative entities
+    neg_entity_samples = random.sample(list(zip(negative_entity_spans, negative_entity_sizes)),
+                                       min(len(negative_entity_spans), negative_entity_count))
+    negative_entity_spans, negative_entity_sizes = zip(*neg_entity_samples) if neg_entity_samples else ([], [])
+    neg_entity_types = [0] * len(negative_entity_spans)
+
+    # negative relations
+    # use only strong negative relations, i.e. pairs of actual (labeled) entities that are not related
+    negative_rel_spans = []
+
+    for idx1, span1 in enumerate(positive_entity_spans):
+        for idx2, span2 in enumerate(positive_entity_spans):
+            rev = (span2, span1)
+            rev_symmetric = rev in positive_rel_spans and positive_rel_types[positive_rel_spans.index(rev)].symmetric
+
+            if not (span1 == span2 or (span1, span2) in positive_rel_spans or rev_symmetric):
+                negative_rel_spans.append((span1, span2))
+
+    # sample negative relations
+    negative_rel_spans = random.sample(negative_rel_spans, min(len(negative_rel_spans), negative_rel_count))
+
+    negative_rels = [(positive_entity_spans.index(s1), positive_entity_spans.index(s2))
+                     for s1, s2 in negative_rel_spans]
+    negative_rel_types = [0] * len(negative_rel_spans)
+
+    rels = positive_rels + negative_rels
+    rel_types = [r.index for r in positive_rel_types] + negative_rel_types
+
+    return rels, rel_types
+
+
 if __name__ == '__main__':
     types_path = "scripts/data/datasets/conll04/conll04_types.json"
     train_path = "scripts/data/datasets/conll04/conll04_train.json"
@@ -187,4 +249,13 @@ if __name__ == '__main__':
     reader.read({'train': train_path})
 
     train_dataset = reader.get_dataset('train')
-    print('A')
+    for doc in train_dataset.documents:
+        sample = _create_train_sample(
+            doc,
+            negative_entity_count=100,
+            negative_rel_count=100,
+            max_span_size=10,
+            context_size=reader.context_size
+        )
+
+        print(sample)

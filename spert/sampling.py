@@ -298,7 +298,6 @@ def _create_train_sample(doc, neg_entity_count, neg_rel_count, max_span_size, co
     # negative relations
     # use only strong negative relations, i.e. pairs of actual (labeled) entities that are not related
     neg_rel_spans = []
-
     for i1, s1 in enumerate(pos_entity_spans):
         for i2, s2 in enumerate(pos_entity_spans):
             rev = (s2, s1)
@@ -311,10 +310,27 @@ def _create_train_sample(doc, neg_entity_count, neg_rel_count, max_span_size, co
             if s1 != s2 and (s1, s2) not in pos_rel_spans and not rev_symmetric:
                 neg_rel_spans.append((s1, s2))
 
-    # sample negative relations
+    neg_rels = [(pos_entity_spans.index(s1), pos_entity_spans.index(s2)) for s1, s2 in neg_rel_spans]
     neg_rel_spans = random.sample(neg_rel_spans, min(len(neg_rel_spans), neg_rel_count))
 
-    neg_rels = [(pos_entity_spans.index(s1), pos_entity_spans.index(s2)) for s1, s2 in neg_rel_spans]
+    # negative relations bpn
+    neg_rel_spans_bpn = []
+    for i1, s1 in enumerate(pos_entity_spans):
+        for i2, s2 in enumerate(neg_entity_spans):
+            neg_rel_spans_bpn.append((s1, s2))
+
+    neg_rels += [(pos_entity_spans.index(s1), neg_entity_spans.index(s2)) for s1, s2 in neg_rel_spans_bpn]
+    neg_rel_spans += random.sample(neg_rel_spans_bpn, min(len(neg_rel_spans_bpn), int(neg_rel_count / 2)))
+
+    # negative relations nn
+    neg_rel_spans_nn = []
+    for i1, s1 in enumerate(neg_entity_spans):
+        for i2, s2 in enumerate(neg_entity_spans):
+            neg_rel_spans_nn.append((s1, s2))
+
+    neg_rels += [(neg_entity_spans.index(s1), neg_entity_spans.index(s2)) for s1, s2 in neg_rel_spans_nn]
+    neg_rel_spans += random.sample(neg_rel_spans_nn, min(len(neg_rel_spans_nn), int(neg_rel_count / 2)))
+
     neg_rel_masks = [create_rel_mask(*spans, context_size) for spans in neg_rel_spans]
     neg_rel_types = [0] * len(neg_rel_spans)
 
@@ -328,6 +344,7 @@ def _create_train_sample(doc, neg_entity_count, neg_rel_count, max_span_size, co
     rel_masks = pos_rel_masks + neg_rel_masks
 
     assert len(entity_masks) == len(entity_sizes) == len(entity_types)
+    print(len(rels), len(rel_masks), len(rel_types))
     assert len(rels) == len(rel_masks) == len(rel_types)
 
     # create tensors
