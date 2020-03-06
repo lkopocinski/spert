@@ -135,7 +135,7 @@ class BaseSampler(ABC):
         self._mp_func = mp_func
         self._manager = manager
         self._pool = pool
-        self._processes = 1
+        self._processes = processes
 
         # avoid large memory consumption (e.g. in case of slow evaluation)
         self._semaphore = self._manager.Semaphore(limit) if processes > 0 else None
@@ -333,6 +333,7 @@ def _create_train_sample(doc, neg_entity_count, neg_rel_count, max_span_size, co
 
     neg_rels = neg_rels + neg_rels_bpn + neg_rels_nn
     neg_rel_spans = neg_rel_spans + neg_rel_spans_bpn + neg_rel_spans_nn
+
     neg_rel_masks = [create_rel_mask(*spans, context_size) for spans in neg_rel_spans]
     neg_rel_types = [0] * len(neg_rel_spans)
 
